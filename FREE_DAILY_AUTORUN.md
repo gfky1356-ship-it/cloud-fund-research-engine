@@ -47,7 +47,7 @@ cp CLOUD_FUND_RESEARCH_ENGINE_20260807_by_codex/.github_workflow_fund_daily.yml 
 
 `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`
 
-新增三个 secrets：
+新增四个 secrets：
 
 `GOOGLE_SERVICE_ACCOUNT_JSON`
 
@@ -60,6 +60,10 @@ cp CLOUD_FUND_RESEARCH_ENGINE_20260807_by_codex/.github_workflow_fund_daily.yml 
 `GOOGLE_DRIVE_JSON_FILE_ID`
 
 - 内容是 `fund_daily_summary.json` 的 Drive file id
+
+`GOOGLE_DRIVE_MD_FILE_ID`
+
+- 内容是 `fund_daily_summary.md` 的 Drive file id
 
 ## 5. 启用 daily run
 
@@ -81,8 +85,9 @@ GitHub Actions 每天会覆盖更新 Google Drive folder 里的固定文件：
 
 - `My Drive/AI_Fund_Research/output/fund_daily_summary.csv`
 - `My Drive/AI_Fund_Research/output/fund_daily_summary.json`
+- `My Drive/AI_Fund_Research/output/fund_daily_summary.md`
 
-ChatGPT 后续只读这两个 latest files。
+ChatGPT 后续优先读 Markdown；需要 machine-readable fields 时再读 CSV/JSON。
 
 ## Notes
 
