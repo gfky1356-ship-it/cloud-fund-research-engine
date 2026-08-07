@@ -40,10 +40,12 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_CSV_FILE_ID: ${{ secrets.GOOGLE_DRIVE_CSV_FILE_ID }}
           GOOGLE_DRIVE_JSON_FILE_ID: ${{ secrets.GOOGLE_DRIVE_JSON_FILE_ID }}
+          GOOGLE_DRIVE_MD_FILE_ID: ${{ secrets.GOOGLE_DRIVE_MD_FILE_ID }}
         run: |
           python scripts/upload_to_drive.py \
             AI_Fund_Research/output/fund_daily_summary.csv \
-            AI_Fund_Research/output/fund_daily_summary.json
+            AI_Fund_Research/output/fund_daily_summary.json \
+            AI_Fund_Research/output/fund_daily_summary.md
 
       - name: Upload GitHub artifact backup
         uses: actions/upload-artifact@v4
@@ -52,4 +54,5 @@ jobs:
           path: |
             AI_Fund_Research/output/fund_daily_summary.csv
             AI_Fund_Research/output/fund_daily_summary.json
+            AI_Fund_Research/output/fund_daily_summary.md
             AI_Fund_Research/output/*_fund_run_status.json
