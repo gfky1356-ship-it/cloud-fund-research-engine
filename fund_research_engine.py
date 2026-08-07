@@ -238,6 +238,15 @@ def refresh_symbol(paths: Paths, symbol: str, years: int, force_full: bool, slee
             time.sleep(sleep_seconds)
         return {"symbol": symbol, "status": "ok", "reason": reason, "existing_rows": row_count, "new_rows": int(len(nav)), "db_changes": changed}
     except Exception as exc:  # noqa: BLE001 - status log needs exact source failure
+        if reason == "incremental" and "Data doesn't exist for startDate" in str(exc):
+            update_source_status(paths.db_path, symbol, "cache_current", None)
+            return {
+                "symbol": symbol,
+                "status": "cache_current",
+                "reason": "incremental_no_new_trading_data",
+                "existing_rows": row_count,
+                "new_rows": 0,
+            }
         update_source_status(paths.db_path, symbol, "failed", str(exc))
         return {"symbol": symbol, "status": "failed", "reason": reason, "existing_rows": row_count, "new_rows": 0, "error": str(exc)}
 
@@ -386,15 +395,35 @@ def score_rows(metrics: pd.DataFrame) -> pd.DataFrame:
     return scored
 
 
+def scoped_for_display(scored: pd.DataFrame, display_currency: str, include_sgd_hedged: bool = True) -> pd.DataFrame:
+    if display_currency.lower() == "all":
+        return scored.copy()
+    wanted = display_currency.upper()
+    currency_match = scored["currency"].astype(str).str.upper() == wanted
+    if wanted == "SGD" and include_sgd_hedged:
+        hedge_match = scored["sgd_hedged"].astype(str).str.lower().isin(["yes", "true", "1", "y"])
+        return scored[currency_match | hedge_match].copy()
+    return scored[currency_match].copy()
+
+
 def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
     passed = scored[scored["retirement_pass"].fillna(False)].copy()
-    if passed.empty:
-        return passed
-    passed["cagr_display"] = passed["cagr_5y_pct"].where(pd.notna(passed["cagr_5y_pct"]), passed["cagr_3y_pct"]).where(
-            pd.notna(passed["cagr_5y_pct"].where(pd.notna(passed["cagr_5y_pct"]), passed["cagr_3y_pct"])),
-            passed["cagr_1y_pct"],
-        )
-    passed = passed.sort_values(["score", "maxdd_5y_or_life_pct", "yield_pct"], ascending=[False, False, False]).head(top_n)
+    source = passed
+    if source.empty:
+        source = scored[
+            scored["retirement_candidate"].fillna(False)
+            & ~scored["benchmark"].fillna(False)
+            & (scored["status"] == "OK")
+        ].copy()
+    if source.empty:
+        return source
+    cagr_base = source["cagr_5y_pct"].where(pd.notna(source["cagr_5y_pct"]), source["cagr_3y_pct"])
+    source["cagr_display"] = cagr_base.where(pd.notna(cagr_base), source["cagr_1y_pct"])
+    sort_score = source["score"].fillna(-1)
+    source = source.assign(_sort_score=sort_score).sort_values(
+        ["_sort_score", "maxdd_5y_or_life_pct", "yield_pct"],
+        ascending=[False, False, False],
+    ).head(top_n)
     columns = [
         "symbol",
         "name",
@@ -407,10 +436,12 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
         "fee_pct",
         "volatility_1y_pct",
         "score",
+        "retirement_pass",
+        "fail_reason",
         "history_less_than_5y",
         "last_date",
     ]
-    out = passed[columns].rename(
+    out = source[columns].rename(
         columns={
             "symbol": "Fund",
             "name": "Name",
@@ -423,24 +454,28 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
             "fee_pct": "Fee",
             "volatility_1y_pct": "Vol",
             "score": "Score",
+            "retirement_pass": "Retirement_Pass",
+            "fail_reason": "Fail_Reason",
             "history_less_than_5y": "History_LT_5Y",
             "last_date": "Last_NAV",
         }
     )
     for col in ("CAGR", "MaxDD", "Yield", "Fee", "Vol"):
         out[col] = out[col].astype(float).round(2)
-    out["Score"] = out["Score"].astype(float).round(0).astype("Int64")
+    out["Score"] = out["Score"].round(0).astype("Int64")
+    out["Fail_Reason"] = out["Fail_Reason"].fillna("")
     return out
 
 
-def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str) -> str:
+def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display_scope: str) -> str:
     lines = [
         "# Fund Daily Summary",
         "",
         f"- Generated UTC: `{generated_at}`",
         f"- Mode: `{mode}`",
+        f"- Display scope: `{display_scope}`",
         "- Hard rule: `5Y Max Drawdown <= 5%`; if history is under 5Y, inception-to-date MaxDD is used and flagged.",
-        "- SPY is benchmark only and is not eligible for the retirement shortlist.",
+        "- SPY/ES3.SI are benchmark only and are not eligible for the retirement shortlist.",
         "",
     ]
     if latest.empty:
@@ -456,7 +491,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str) -> str:
         display = latest.copy()
         display["Fund"] = display["Fund"].astype(str)
         display["Type"] = display["Type"].astype(str)
-        display = display[["Fund", "Type", "CAGR", "MaxDD", "Yield", "Fee", "Score", "Last_NAV"]]
+        display = display[["Fund", "Type", "CAGR", "MaxDD", "Yield", "Fee", "Score", "Retirement_Pass", "Fail_Reason", "Last_NAV"]]
         header = "| " + " | ".join(display.columns) + " |"
         separator = "| " + " | ".join("---" for _ in display.columns) + " |"
         rows = []
@@ -483,7 +518,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str) -> str:
     return "\n".join(lines)
 
 
-def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode: str, statuses: list[dict[str, Any]]) -> dict[str, str]:
+def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode: str, display_scope: str, statuses: list[dict[str, Any]]) -> dict[str, str]:
     run_date = date.today().isoformat()
     latest_csv = paths.output_dir / "fund_daily_summary.csv"
     latest_json = paths.output_dir / "fund_daily_summary.json"
@@ -496,6 +531,7 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
     payload = {
         "generated_at": generated_at,
         "mode": mode,
+        "display_scope": display_scope,
         "hard_filter": "5Y Max Drawdown <= 5%; if history <5Y, inception-to-date MaxDD is used and flagged",
         "storage_root": str(paths.storage_root),
         "latest_csv": str(latest_csv),
@@ -504,10 +540,11 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
         "rows": latest.replace({np.nan: None}).to_dict("records"),
     }
     latest_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    latest_md.write_text(markdown_summary(latest, generated_at, mode), encoding="utf-8")
+    latest_md.write_text(markdown_summary(latest, generated_at, mode, display_scope), encoding="utf-8")
     status_payload = {
         "generated_at": now_iso(),
         "mode": mode,
+        "display_scope": display_scope,
         "db_path": str(paths.db_path),
         "universe_path": str(paths.universe_path),
         "source_status": statuses,
@@ -545,8 +582,12 @@ def run_engine(args: argparse.Namespace) -> int:
     nav = read_nav(paths.db_path)
     metrics = compute_metrics(universe, nav)
     scored = score_rows(metrics)
-    latest = compact_latest(scored, args.top_n)
-    outputs = write_outputs(paths, scored, latest, args.mode, statuses)
+    scoped = scoped_for_display(scored, args.display_currency, include_sgd_hedged=not args.exclude_sgd_hedged)
+    latest = compact_latest(scoped, args.top_n)
+    display_scope = args.display_currency.upper()
+    if display_scope == "SGD" and not args.exclude_sgd_hedged:
+        display_scope = "SGD plus SGD-hedged"
+    outputs = write_outputs(paths, scored, latest, args.mode, display_scope, statuses)
     log_event(paths, "run_finished", outputs=outputs, latest_rows=int(len(latest)))
     print("\nLatest Top Funds")
     if latest.empty:
@@ -566,6 +607,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--storage-root", default=None, help="Persistent root. In Colab use /content/drive/MyDrive/AI_Fund_Research")
     parser.add_argument("--universe", default=None, help="CSV fund universe path")
     parser.add_argument("--top-n", type=int, default=5)
+    parser.add_argument("--display-currency", default="SGD", help="Currency scope for latest output. Use ALL to show all currencies.")
+    parser.add_argument("--exclude-sgd-hedged", action="store_true", help="For SGD display, exclude non-SGD funds marked SGD-hedged.")
     parser.add_argument("--force-full", action="store_true", help="Ignore cache bounds and refresh full history window")
     parser.add_argument("--sleep", type=float, default=0.2, help="Seconds between source requests")
     return parser
