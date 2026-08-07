@@ -60,20 +60,41 @@ def upload_one(service, folder_id: str, path: Path) -> str:
     return created.get("webViewLink", created["id"])
 
 
+def update_one(service, file_id: str, path: Path) -> str:
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    media = MediaFileUpload(str(path), mimetype=mime_type, resumable=False)
+    updated = (
+        service.files()
+        .update(fileId=file_id, media_body=media, fields="id,name,webViewLink")
+        .execute()
+    )
+    return updated.get("webViewLink", updated["id"])
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Upload fund outputs to Google Drive")
     parser.add_argument("--folder-id", default=os.environ.get("GOOGLE_DRIVE_OUTPUT_FOLDER_ID"))
+    parser.add_argument("--csv-file-id", default=os.environ.get("GOOGLE_DRIVE_CSV_FILE_ID"))
+    parser.add_argument("--json-file-id", default=os.environ.get("GOOGLE_DRIVE_JSON_FILE_ID"))
     parser.add_argument("files", nargs="+")
     args = parser.parse_args()
-    if not args.folder_id:
-        raise RuntimeError("Missing --folder-id or GOOGLE_DRIVE_OUTPUT_FOLDER_ID")
     credentials = load_credentials()
     service = build("drive", "v3", credentials=credentials, cache_discovery=False)
     for raw in args.files:
         path = Path(raw).expanduser().resolve()
         if not path.exists():
             raise FileNotFoundError(path)
-        link = upload_one(service, args.folder_id, path)
+        file_id = None
+        if path.suffix.lower() == ".csv":
+            file_id = args.csv_file_id
+        elif path.suffix.lower() == ".json":
+            file_id = args.json_file_id
+        if file_id:
+            link = update_one(service, file_id, path)
+        else:
+            if not args.folder_id:
+                raise RuntimeError("Missing target file id and missing --folder-id or GOOGLE_DRIVE_OUTPUT_FOLDER_ID")
+            link = upload_one(service, args.folder_id, path)
         print(f"uploaded {path.name}: {link}")
     return 0
 
