@@ -1,4 +1,6 @@
 symbol,name,type,currency,sgd_hedged,fee_pct_seed,yield_pct_seed,duration_years_seed,risk_group,retirement_candidate,benchmark,notes
+MBH.SI,Nikko AM SGD Investment Grade Corporate Bond ETF,SGD Investment Grade Bond,SGD,Yes,0.30,3.30,6.00,sgd_bond,true,false,Singapore-listed SGD investment-grade corporate bond ETF
+A35.SI,ABF Singapore Bond Index Fund,SGD Government / Quasi-Government Bond,SGD,Yes,0.25,2.80,7.00,sgd_bond,true,false,Singapore-listed SGD bond ETF proxy
 SGOV,iShares 0-3 Month Treasury Bond ETF,Money Market / Treasury Bills,USD,No,0.09,4.96,0.10,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 BIL,SPDR Bloomberg 1-3 Month T-Bill ETF,Money Market / Treasury Bills,USD,No,0.14,4.85,0.12,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 SHV,iShares Short Treasury Bond ETF,Short Treasury Bond,USD,No,0.15,4.55,0.35,ultra_short,true,false,Short US Treasury ETF
@@ -10,4 +12,5 @@ FLRN,SPDR Bloomberg Investment Grade Floating Rate ETF,Floating Rate IG Bond,USD
 SCHO,Schwab Short-Term U.S. Treasury ETF,Short Treasury Bond,USD,No,0.03,4.10,1.90,short_duration,true,false,Short-term US Treasury ETF
 IGSB,iShares 1-5 Year Investment Grade Corporate Bond ETF,Short IG Corporate Bond,USD,No,0.04,4.30,2.70,short_duration,true,false,Short investment-grade corporate bond ETF
 VCSH,Vanguard Short-Term Corporate Bond ETF,Short IG Corporate Bond,USD,No,0.04,4.35,2.80,short_duration,true,false,Short investment-grade corporate bond ETF
+ES3.SI,SPDR Straits Times Index ETF,Singapore Equity Benchmark,SGD,No,0.30,4.00,,sg_equity_benchmark,false,true,Singapore equity benchmark only; not a retirement shortlist candidate
 SPY,SPDR S&P 500 ETF Trust,Growth Equity Benchmark,USD,No,0.09,1.20,,growth_benchmark,false,true,Growth benchmark only; must not enter retirement shortlist if drawdown fails
