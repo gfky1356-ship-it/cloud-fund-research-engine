@@ -1,0 +1,6 @@
+pandas>=2.0
+numpy>=1.24
+requests>=2.31
+python-dateutil>=2.8
+google-api-python-client>=2.140
+google-auth>=2.30
