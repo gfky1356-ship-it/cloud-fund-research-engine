@@ -76,6 +76,7 @@ def main() -> int:
     parser.add_argument("--folder-id", default=os.environ.get("GOOGLE_DRIVE_OUTPUT_FOLDER_ID"))
     parser.add_argument("--csv-file-id", default=os.environ.get("GOOGLE_DRIVE_CSV_FILE_ID"))
     parser.add_argument("--json-file-id", default=os.environ.get("GOOGLE_DRIVE_JSON_FILE_ID"))
+    parser.add_argument("--md-file-id", default=os.environ.get("GOOGLE_DRIVE_MD_FILE_ID"))
     parser.add_argument("files", nargs="+")
     args = parser.parse_args()
     credentials = load_credentials()
@@ -89,6 +90,8 @@ def main() -> int:
             file_id = args.csv_file_id
         elif path.suffix.lower() == ".json":
             file_id = args.json_file_id
+        elif path.suffix.lower() in {".md", ".markdown"}:
+            file_id = args.md_file_id
         if file_id:
             link = update_one(service, file_id, path)
         else:
