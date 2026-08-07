@@ -433,24 +433,78 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
     return out
 
 
+def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str) -> str:
+    lines = [
+        "# Fund Daily Summary",
+        "",
+        f"- Generated UTC: `{generated_at}`",
+        f"- Mode: `{mode}`",
+        "- Hard rule: `5Y Max Drawdown <= 5%`; if history is under 5Y, inception-to-date MaxDD is used and flagged.",
+        "- SPY is benchmark only and is not eligible for the retirement shortlist.",
+        "",
+    ]
+    if latest.empty:
+        lines.extend(
+            [
+                "## Top Retirement Candidates",
+                "",
+                "No fund passed the hard MaxDD filter in this run.",
+                "",
+            ]
+        )
+    else:
+        display = latest.copy()
+        display["Fund"] = display["Fund"].astype(str)
+        display["Type"] = display["Type"].astype(str)
+        display = display[["Fund", "Type", "CAGR", "MaxDD", "Yield", "Fee", "Score", "Last_NAV"]]
+        header = "| " + " | ".join(display.columns) + " |"
+        separator = "| " + " | ".join("---" for _ in display.columns) + " |"
+        rows = []
+        for record in display.to_dict("records"):
+            rows.append("| " + " | ".join(str(record[col]) for col in display.columns) + " |")
+        lines.extend(
+            [
+                "## Top Retirement Candidates",
+                "",
+                "\n".join([header, separator, *rows]),
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "## GPT Reading Notes",
+            "",
+            "- Treat this file as the compact latest view.",
+            "- Use CSV/JSON only when exact machine-readable fields are needed.",
+            "- Do not rank funds that failed the MaxDD hard rule.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode: str, statuses: list[dict[str, Any]]) -> dict[str, str]:
     run_date = date.today().isoformat()
     latest_csv = paths.output_dir / "fund_daily_summary.csv"
     latest_json = paths.output_dir / "fund_daily_summary.json"
+    latest_md = paths.output_dir / "fund_daily_summary.md"
     full_csv = paths.output_dir / f"{run_date}_fund_full_ranking.csv"
     status_json = paths.output_dir / f"{run_date}_fund_run_status.json"
     latest.to_csv(latest_csv, index=False, quoting=csv.QUOTE_MINIMAL)
     scored.to_csv(full_csv, index=False)
+    generated_at = now_iso()
     payload = {
-        "generated_at": now_iso(),
+        "generated_at": generated_at,
         "mode": mode,
         "hard_filter": "5Y Max Drawdown <= 5%; if history <5Y, inception-to-date MaxDD is used and flagged",
         "storage_root": str(paths.storage_root),
         "latest_csv": str(latest_csv),
         "latest_json": str(latest_json),
+        "latest_md": str(latest_md),
         "rows": latest.replace({np.nan: None}).to_dict("records"),
     }
     latest_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    latest_md.write_text(markdown_summary(latest, generated_at, mode), encoding="utf-8")
     status_payload = {
         "generated_at": now_iso(),
         "mode": mode,
@@ -462,6 +516,7 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
         "outputs": {
             "latest_csv": str(latest_csv),
             "latest_json": str(latest_json),
+            "latest_md": str(latest_md),
             "full_ranking_csv": str(full_csv),
         },
     }
@@ -469,6 +524,7 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
     return {
         "latest_csv": str(latest_csv),
         "latest_json": str(latest_json),
+        "latest_md": str(latest_md),
         "full_ranking_csv": str(full_csv),
         "status_json": str(status_json),
     }
@@ -500,6 +556,7 @@ def run_engine(args: argparse.Namespace) -> int:
     print("\nStable ChatGPT bridge outputs:")
     print(outputs["latest_csv"])
     print(outputs["latest_json"])
+    print(outputs["latest_md"])
     return 0
 
 
