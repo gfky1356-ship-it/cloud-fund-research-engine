@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+AI_Fund_Research/cache/
+AI_Fund_Research/logs/
+AI_Fund_Research/output/
+.DS_Store
