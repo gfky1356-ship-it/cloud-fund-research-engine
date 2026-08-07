@@ -467,13 +467,44 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
     return out
 
 
-def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display_scope: str) -> str:
+def cache_summary(statuses: list[dict[str, Any]], nav: pd.DataFrame) -> dict[str, Any]:
+    full_downloads = sum(1 for item in statuses if item.get("reason") in {"empty_cache", "full_refresh"} and item.get("new_rows", 0) > 0)
+    incremental_updates = sum(1 for item in statuses if item.get("reason") == "incremental" and item.get("new_rows", 0) > 0)
+    no_new_data_hits = sum(1 for item in statuses if item.get("status") == "cache_current")
+    failed_sources = sum(1 for item in statuses if item.get("status") == "failed")
+    reused_rows = sum(int(item.get("existing_rows") or 0) for item in statuses)
+    downloaded_rows = sum(int(item.get("new_rows") or 0) for item in statuses)
+    funds_cached = int(nav["symbol"].nunique()) if not nav.empty else 0
+    cached_nav_rows = int(len(nav))
+    if failed_sources:
+        state = "WARN"
+    elif full_downloads and reused_rows:
+        state = "MIXED"
+    elif full_downloads:
+        state = "MISS"
+    else:
+        state = "HIT"
+    return {
+        "state": state,
+        "funds_cached": funds_cached,
+        "cached_nav_rows": cached_nav_rows,
+        "reused_rows": reused_rows,
+        "downloaded_rows": downloaded_rows,
+        "full_downloads": full_downloads,
+        "incremental_updates": incremental_updates,
+        "no_new_data_cache_hits": no_new_data_hits,
+        "failed_sources": failed_sources,
+    }
+
+
+def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display_scope: str, cache: dict[str, Any]) -> str:
     lines = [
         "# Fund Daily Summary",
         "",
         f"- Generated UTC: `{generated_at}`",
         f"- Mode: `{mode}`",
         f"- Display scope: `{display_scope}`",
+        f"- Cache: `{cache['state']}`",
         "- Hard rule: `5Y Max Drawdown <= 5%`; if history is under 5Y, inception-to-date MaxDD is used and flagged.",
         "- SPY/ES3.SI are benchmark only and are not eligible for the retirement shortlist.",
         "",
@@ -507,6 +538,18 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         )
     lines.extend(
         [
+            "## Cache Status",
+            "",
+            f"- Cache: `{cache['state']}`",
+            f"- Funds cached: `{cache['funds_cached']}`",
+            f"- Cached NAV rows: `{cache['cached_nav_rows']}`",
+            f"- Reused rows: `{cache['reused_rows']}`",
+            f"- Downloaded rows this run: `{cache['downloaded_rows']}`",
+            f"- Full downloads: `{cache['full_downloads']}`",
+            f"- Incremental updates: `{cache['incremental_updates']}`",
+            f"- No-new-data cache hits: `{cache['no_new_data_cache_hits']}`",
+            f"- Failed sources: `{cache['failed_sources']}`",
+            "",
             "## GPT Reading Notes",
             "",
             "- Treat this file as the compact latest view.",
@@ -518,7 +561,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
     return "\n".join(lines)
 
 
-def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode: str, display_scope: str, statuses: list[dict[str, Any]]) -> dict[str, str]:
+def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode: str, display_scope: str, statuses: list[dict[str, Any]], nav: pd.DataFrame) -> dict[str, str]:
     run_date = date.today().isoformat()
     latest_csv = paths.output_dir / "fund_daily_summary.csv"
     latest_json = paths.output_dir / "fund_daily_summary.json"
@@ -528,10 +571,12 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
     latest.to_csv(latest_csv, index=False, quoting=csv.QUOTE_MINIMAL)
     scored.to_csv(full_csv, index=False)
     generated_at = now_iso()
+    cache = cache_summary(statuses, nav)
     payload = {
         "generated_at": generated_at,
         "mode": mode,
         "display_scope": display_scope,
+        "cache": cache,
         "hard_filter": "5Y Max Drawdown <= 5%; if history <5Y, inception-to-date MaxDD is used and flagged",
         "storage_root": str(paths.storage_root),
         "latest_csv": str(latest_csv),
@@ -540,11 +585,12 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
         "rows": latest.replace({np.nan: None}).to_dict("records"),
     }
     latest_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    latest_md.write_text(markdown_summary(latest, generated_at, mode, display_scope), encoding="utf-8")
+    latest_md.write_text(markdown_summary(latest, generated_at, mode, display_scope, cache), encoding="utf-8")
     status_payload = {
         "generated_at": now_iso(),
         "mode": mode,
         "display_scope": display_scope,
+        "cache": cache,
         "db_path": str(paths.db_path),
         "universe_path": str(paths.universe_path),
         "source_status": statuses,
@@ -587,7 +633,7 @@ def run_engine(args: argparse.Namespace) -> int:
     display_scope = args.display_currency.upper()
     if display_scope == "SGD" and not args.exclude_sgd_hedged:
         display_scope = "SGD plus SGD-hedged"
-    outputs = write_outputs(paths, scored, latest, args.mode, display_scope, statuses)
+    outputs = write_outputs(paths, scored, latest, args.mode, display_scope, statuses, nav)
     log_event(paths, "run_finished", outputs=outputs, latest_rows=int(len(latest)))
     print("\nLatest Top Funds")
     if latest.empty:
