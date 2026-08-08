@@ -222,6 +222,56 @@ def forward_return(series: pd.Series, start_date: pd.Timestamp, calendar_days: i
     return float((future.iloc[0] / s.loc[start_date] - 1.0) * 100.0)
 
 
+def trading_days_between(series: pd.Series, start_date: pd.Timestamp, end_date: pd.Timestamp | str) -> float:
+    if end_date == "" or pd.isna(end_date):
+        return np.nan
+    s = series.dropna()
+    start = pd.Timestamp(start_date)
+    end = pd.Timestamp(end_date)
+    if start not in s.index or end not in s.index:
+        return np.nan
+    return float(s.index.get_loc(end) - s.index.get_loc(start))
+
+
+def threshold_recovery_days(series: pd.Series, trough_date: pd.Timestamp, prior_peak: float, fraction: float) -> tuple[float, float]:
+    s = series.dropna()
+    if trough_date not in s.index:
+        return np.nan, np.nan
+    trough_value = float(s.loc[trough_date])
+    threshold = trough_value + fraction * (prior_peak - trough_value)
+    after = s.loc[trough_date:]
+    hit = after[after >= threshold]
+    if hit.empty:
+        return np.nan, np.nan
+    hit_date = hit.index[0]
+    return float((hit_date - trough_date).days), trading_days_between(s, trough_date, hit_date)
+
+
+def settling_metrics(series: pd.Series, recovery_date: str, prior_peak: float) -> dict[str, Any]:
+    if not recovery_date:
+        return {
+            "post_recovery_relapse_30d_pct": np.nan,
+            "post_recovery_relapse_60d_pct": np.nan,
+            "post_recovery_relapse_90d_pct": np.nan,
+            "post_recovery_vol_90d_pct": np.nan,
+            "settled_20_trading_days": "",
+        }
+    s = series.dropna()
+    rec = pd.Timestamp(recovery_date)
+    if rec not in s.index:
+        return {}
+    out: dict[str, Any] = {}
+    for days in [30, 60, 90]:
+        post = s.loc[rec : rec + pd.Timedelta(days=days)]
+        out[f"post_recovery_relapse_{days}d_pct"] = round(float((post / prior_peak - 1.0).min() * 100.0), 2) if not post.empty else np.nan
+    post90 = s.loc[rec : rec + pd.Timedelta(days=90)]
+    ret90 = post90.pct_change().dropna()
+    out["post_recovery_vol_90d_pct"] = round(float(ret90.std() * math.sqrt(252) * 100.0), 2) if not ret90.empty else np.nan
+    first20 = s.loc[rec:].head(20)
+    out["settled_20_trading_days"] = "" if len(first20) < 20 else bool((first20 >= prior_peak * 0.98).all())
+    return out
+
+
 def long_term_metrics(symbol: str, name: str, info: pd.Series, series: pd.Series) -> dict[str, Any]:
     s = series.dropna()
     rec = recovery_metrics(s)
@@ -260,15 +310,37 @@ def event_metrics(symbol: str, name: str, series: pd.Series, benchmark: pd.Serie
         if not rec:
             continue
         trough = pd.Timestamp(rec["trough_date"])
+        peak = pd.Timestamp(rec["peak_date"])
         maxdd = float(rec["max_drawdown_pct"])
+        prior_peak = float(window.loc[peak])
+        days25, trading25 = threshold_recovery_days(window, trough, prior_peak, 0.25)
+        days50, trading50 = threshold_recovery_days(window, trough, prior_peak, 0.50)
+        days80, trading80 = threshold_recovery_days(window, trough, prior_peak, 0.80)
+        full_days = rec.get("trough_to_recovery_days", "")
+        full_days_num = pd.to_numeric(pd.Series([full_days]), errors="coerce").iloc[0]
         bench_dd = np.nan
+        bench_recovery_days = np.nan
+        benchmark_post_3m = np.nan
+        benchmark_post_6m = np.nan
+        benchmark_post_12m = np.nan
         downside_capture = np.nan
         if benchmark is not None:
             b = benchmark.loc[window.index.min() : window.index.max()].dropna()
             if len(b) >= 40:
-                bench_dd = float(recovery_metrics(b).get("max_drawdown_pct", np.nan))
+                b_rec = recovery_metrics(b)
+                bench_dd = float(b_rec.get("max_drawdown_pct", np.nan))
+                bench_recovery_days = pd.to_numeric(pd.Series([b_rec.get("trough_to_recovery_days", np.nan)]), errors="coerce").iloc[0]
                 if bench_dd and not np.isnan(bench_dd):
                     downside_capture = maxdd / bench_dd * 100.0
+                benchmark_post_3m = forward_return(b, trough, 91)
+                benchmark_post_6m = forward_return(b, trough, 182)
+                benchmark_post_12m = forward_return(b, trough, 365)
+        post3 = forward_return(window, trough, 91)
+        post6 = forward_return(window, trough, 182)
+        post12 = forward_return(window, trough, 365)
+        recovery_date = rec.get("recovery_date", "")
+        from_recovery_6m = forward_return(window, pd.Timestamp(recovery_date), 182) if recovery_date else np.nan
+        from_recovery_12m = forward_return(window, pd.Timestamp(recovery_date), 365) if recovery_date else np.nan
         rows.append(
             {
                 "symbol": symbol,
@@ -276,15 +348,37 @@ def event_metrics(symbol: str, name: str, series: pd.Series, benchmark: pd.Serie
                 "event": event,
                 "shock_type": shock_type,
                 **rec,
+                "peak_to_trough_trading_days": trading_days_between(window, peak, trough),
+                "trough_to_25pct_recovery_days": round(days25, 0) if not np.isnan(days25) else np.nan,
+                "trough_to_25pct_recovery_trading_days": round(trading25, 0) if not np.isnan(trading25) else np.nan,
+                "trough_to_50pct_recovery_days": round(days50, 0) if not np.isnan(days50) else np.nan,
+                "trough_to_50pct_recovery_trading_days": round(trading50, 0) if not np.isnan(trading50) else np.nan,
+                "trough_to_80pct_recovery_days": round(days80, 0) if not np.isnan(days80) else np.nan,
+                "trough_to_80pct_recovery_trading_days": round(trading80, 0) if not np.isnan(trading80) else np.nan,
+                "recovery_velocity_50_pp_per_day": round((0.50 * abs(maxdd)) / days50, 4) if days50 and not np.isnan(days50) else np.nan,
+                "recovery_velocity_100_pp_per_day": round(abs(maxdd) / full_days_num, 4) if full_days_num and not np.isnan(full_days_num) else np.nan,
                 "worst_1d_pct": round(window.pct_change().min() * 100.0, 2),
                 "worst_5d_pct": round((window / window.shift(5) - 1).min() * 100.0, 2),
                 "worst_20d_pct": round((window / window.shift(20) - 1).min() * 100.0, 2),
                 "post_trough_1m_pct": round(forward_return(window, trough, 30), 2),
-                "post_trough_3m_pct": round(forward_return(window, trough, 91), 2),
-                "post_trough_6m_pct": round(forward_return(window, trough, 182), 2),
-                "post_trough_12m_pct": round(forward_return(window, trough, 365), 2),
+                "post_trough_3m_pct": round(post3, 2) if not np.isnan(post3) else np.nan,
+                "post_trough_6m_pct": round(post6, 2) if not np.isnan(post6) else np.nan,
+                "post_trough_12m_pct": round(post12, 2) if not np.isnan(post12) else np.nan,
+                "post_trough_24m_pct": round(forward_return(window, trough, 730), 2),
+                "post_full_recovery_6m_pct": round(from_recovery_6m, 2) if not np.isnan(from_recovery_6m) else np.nan,
+                "post_full_recovery_12m_pct": round(from_recovery_12m, 2) if not np.isnan(from_recovery_12m) else np.nan,
                 "benchmark_maxdd_pct": round(bench_dd, 2) if not np.isnan(bench_dd) else np.nan,
                 "downside_capture_vs_6040_pct": round(downside_capture, 2) if not np.isnan(downside_capture) else np.nan,
+                "benchmark_full_recovery_days": round(bench_recovery_days, 0) if not np.isnan(bench_recovery_days) else np.nan,
+                "recovery_time_advantage_vs_6040_days": round(bench_recovery_days - full_days_num, 0) if not np.isnan(bench_recovery_days) and not np.isnan(full_days_num) else np.nan,
+                "maxdd_advantage_vs_6040_pct": round(maxdd - bench_dd, 2) if not np.isnan(bench_dd) else np.nan,
+                "benchmark_post_trough_3m_pct": round(benchmark_post_3m, 2) if not np.isnan(benchmark_post_3m) else np.nan,
+                "benchmark_post_trough_6m_pct": round(benchmark_post_6m, 2) if not np.isnan(benchmark_post_6m) else np.nan,
+                "benchmark_post_trough_12m_pct": round(benchmark_post_12m, 2) if not np.isnan(benchmark_post_12m) else np.nan,
+                "recovery_alpha_3m_vs_6040_pct": round(post3 - benchmark_post_3m, 2) if not np.isnan(post3) and not np.isnan(benchmark_post_3m) else np.nan,
+                "recovery_alpha_6m_vs_6040_pct": round(post6 - benchmark_post_6m, 2) if not np.isnan(post6) and not np.isnan(benchmark_post_6m) else np.nan,
+                "recovery_alpha_12m_vs_6040_pct": round(post12 - benchmark_post_12m, 2) if not np.isnan(post12) and not np.isnan(benchmark_post_12m) else np.nan,
+                **settling_metrics(window, recovery_date, prior_peak),
                 "attribution_status": "NAV measured; holdings/process attribution not yet collected",
             }
         )
@@ -346,6 +440,178 @@ def score_rank(metrics: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values("correction_system_score", ascending=False)
 
 
+def score_throttle_events(events: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if events.empty:
+        return events.copy(), pd.DataFrame()
+    scored_parts = []
+
+    def norm_low(series: pd.Series) -> pd.Series:
+        v = pd.to_numeric(series, errors="coerce")
+        if v.notna().sum() <= 1 or v.max() == v.min():
+            return pd.Series(0.5, index=series.index)
+        return ((v.max() - v) / (v.max() - v.min())).clip(0, 1).fillna(0.0)
+
+    def norm_high(series: pd.Series) -> pd.Series:
+        v = pd.to_numeric(series, errors="coerce")
+        if v.notna().sum() <= 1 or v.max() == v.min():
+            return pd.Series(0.5, index=series.index)
+        return ((v - v.min()) / (v.max() - v.min())).clip(0, 1).fillna(0.0)
+
+    for event, group in events.groupby("event", sort=False):
+        g = group.copy()
+        full_recovery = pd.to_numeric(g["trough_to_recovery_days"].replace("", np.nan), errors="coerce")
+        unresolved_penalty = full_recovery.fillna(full_recovery.max() if full_recovery.notna().any() else 9999)
+        if full_recovery.notna().any():
+            unresolved_penalty = full_recovery.fillna(full_recovery.max() * 1.5)
+        g["ThrottleScore_v2"] = (
+            25 * norm_high(g["max_drawdown_pct"])
+            + 15 * norm_low(g["trough_to_50pct_recovery_days"])
+            + 10 * norm_low(g["trough_to_80pct_recovery_days"])
+            + 20 * norm_low(unresolved_penalty)
+            + 10 * norm_low(g["downside_capture_vs_6040_pct"])
+            + 10 * norm_high(g["recovery_alpha_12m_vs_6040_pct"])
+            + 5 * norm_high(g["post_recovery_relapse_90d_pct"])
+            + 5 * norm_high(g["post_trough_12m_pct"])
+        ).round(0)
+        g["ThrottleScore_v2"] = g["ThrottleScore_v2"].fillna(0).astype(int)
+        scored_parts.append(g)
+    scored = pd.concat(scored_parts, ignore_index=True, sort=False)
+    non_benchmark = scored[~scored["symbol"].astype(str).str.startswith("STATIC_60_40_")].copy()
+    if non_benchmark.empty:
+        non_benchmark = scored.copy()
+    agg = (
+        non_benchmark.groupby(["symbol", "fund"], as_index=False)
+        .agg(
+            average_throttle_score=("ThrottleScore_v2", "mean"),
+            median_throttle_score=("ThrottleScore_v2", "median"),
+            worst_shock_score=("ThrottleScore_v2", "min"),
+            consistency_std=("ThrottleScore_v2", "std"),
+            event_count=("event", "count"),
+            average_maxdd_pct=("max_drawdown_pct", "mean"),
+            average_recovery_alpha_12m_pct=("recovery_alpha_12m_vs_6040_pct", "mean"),
+            average_recovery_time_advantage_days=("recovery_time_advantage_vs_6040_days", "mean"),
+            average_downside_capture_pct=("downside_capture_vs_6040_pct", "mean"),
+        )
+    )
+    agg["event_coverage_factor"] = (agg["event_count"] / 3.0).clip(upper=1.0)
+    agg["reliability_adjusted_throttle_score"] = agg["average_throttle_score"] * agg["event_coverage_factor"]
+    for col in [
+        "average_throttle_score",
+        "median_throttle_score",
+        "worst_shock_score",
+        "consistency_std",
+        "event_coverage_factor",
+        "reliability_adjusted_throttle_score",
+        "average_maxdd_pct",
+        "average_recovery_alpha_12m_pct",
+        "average_recovery_time_advantage_days",
+        "average_downside_capture_pct",
+    ]:
+        agg[col] = pd.to_numeric(agg[col], errors="coerce").round(2)
+    return scored, agg.sort_values(["reliability_adjusted_throttle_score", "worst_shock_score"], ascending=False)
+
+
+def audit_markdown() -> str:
+    rows = [
+        ("Max drawdown", "Yes", "recovery_metrics(), event_metrics()", "Adjusted NAV proxy", "Keep"),
+        ("Peak date", "Yes", "recovery_metrics()", "Measured from window NAV", "Keep"),
+        ("Trough date", "Yes", "recovery_metrics()", "Measured from window NAV", "Keep"),
+        ("Peak -> trough days", "Yes", "recovery_metrics()", "Calendar days; v2 adds trading days", "Added trading-day field"),
+        ("Trough -> 50% recovery", "Yes", "recovery_metrics(); v2 explicit threshold", "Calendar days", "Keep"),
+        ("Trough -> 80% recovery", "Yes", "recovery_metrics(); v2 explicit threshold", "Calendar days", "Keep"),
+        ("Trough -> 100% recovery", "Yes", "recovery_metrics()", "Blank if not recovered inside window", "Keep"),
+        ("Peak -> full recovery", "Yes", "recovery_metrics()", "Calendar days", "Keep"),
+        ("Underwater duration", "Yes", "max_underwater_days()", "Full-series metric; event-level still derived by recovery fields", "Keep"),
+        ("Downside capture", "Yes", "event_metrics()", "Vs static 60/40 SPY+A35 proxy", "Keep; proxy caveat"),
+        ("Upside / recovery capture", "Partial", "post_trough returns", "Absolute recovery exists; capture not explicit", "v2 adds recovery alpha fields"),
+        ("Recovery alpha vs passive 60/40", "Missing in v1", "event_metrics()", "Benchmark aligned to fund trough date", "Added"),
+        ("Recovery-time advantage vs 60/40", "Missing in v1", "event_metrics()", "Benchmark full-recovery days minus fund full-recovery days", "Added"),
+        ("Post-recovery stability / relapse", "Missing in v1", "settling_metrics()", "30/60/90D relapse and 20-trading-day settled flag", "Added"),
+        ("Post-trough 3M / 6M / 12M return", "Yes", "event_metrics()", "Measured when enough post-trough data exists", "Added 24M too"),
+        ("Throttle score", "Partial", "correction_system_score", "v1 long-term score, not per-shock throttle", "Added ThrottleScore_v2 separately"),
+    ]
+    lines = [
+        "# Throttle Research Audit",
+        "",
+        "Audit-first result: v1 already measured core NAV drawdown/recovery behavior, but lacked several explicit throttle-loop metrics. v2 extends v1 without replacing `correction_system_score`.",
+        "",
+        "| Metric | Existing? | File / function | Data quality | Action needed |",
+        "|---|---|---|---|---|",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(row) + " |")
+    lines.extend(
+        [
+            "",
+            "## What Was Added In v2",
+            "",
+            "- `fund_throttle_event_metrics.csv`: one row per fund x shock with explicit recovery thresholds, velocity, benchmark-relative recovery alpha/time advantage, and settling/hunting fields.",
+            "- `fund_throttle_ranking.csv`: average/median/worst-shock `ThrottleScore_v2` and consistency across available events.",
+            "- `fund_throttle_summary.md`: compact answer table for GPT/user.",
+            "- Additional charts for full-recovery days and downside-capture vs recovery-alpha scatter.",
+            "",
+            "## Caveats",
+            "",
+            "- Uses Yahoo adjusted NAV proxy from the existing cache; distribution total-return quality is not independently verified.",
+            "- Static 60/40 is a proxy benchmark, not a perfect SGD-hedged passive product.",
+            "- P-BIG current share class has short history; current-strategy evidence is mainly 2024-2026.",
+            "- Holdings/process attribution remains missing; faster recovery is measured behavior, not automatically manager skill.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def throttle_summary_markdown(throttle_ranking: pd.DataFrame, throttle_events: pd.DataFrame) -> str:
+    lines = [
+        "# Fund Throttle / Correction-System Summary",
+        "",
+        "This is v2 throttle-speed output. It is event-based and does not overwrite the earlier long-term `correction_system_score`.",
+        "",
+    ]
+    if not throttle_ranking.empty:
+        cols = [
+            "fund",
+            "symbol",
+            "average_throttle_score",
+            "reliability_adjusted_throttle_score",
+            "median_throttle_score",
+            "worst_shock_score",
+            "consistency_std",
+            "event_count",
+            "average_maxdd_pct",
+            "average_recovery_alpha_12m_pct",
+            "average_recovery_time_advantage_days",
+        ]
+        display = throttle_ranking[cols].head(12).where(pd.notna(throttle_ranking[cols].head(12)), "NA")
+        lines.extend(["## Aggregate Ranking", ""])
+        lines.append("| " + " | ".join(display.columns) + " |")
+        lines.append("| " + " | ".join("---" for _ in display.columns) + " |")
+        for record in display.to_dict("records"):
+            lines.append("| " + " | ".join(str(record[col]) for col in display.columns) + " |")
+    if not throttle_events.empty:
+        event_best = throttle_events.sort_values("ThrottleScore_v2", ascending=False).groupby("event").head(3)
+        display = event_best[["event", "fund", "symbol", "ThrottleScore_v2", "max_drawdown_pct", "trough_to_50pct_recovery_days", "trough_to_recovery_days", "recovery_alpha_12m_vs_6040_pct"]].where(pd.notna(event_best), "NA")
+        lines.extend(["", "## Best Per Shock", ""])
+        lines.append("| " + " | ".join(display.columns) + " |")
+        lines.append("| " + " | ".join("---" for _ in display.columns) + " |")
+        for record in display.to_dict("records"):
+            lines.append("| " + " | ".join(str(record[col]) for col in display.columns) + " |")
+    lines.extend(
+        [
+            "",
+            "## Interpretation Rules",
+            "",
+            "- `ThrottleScore_v2` is cross-sectional within each shock; compare funds inside the same event first.",
+            "- A high score from only one event is weaker than consistent multi-event evidence.",
+            "- P-BIG's current class mainly has recent-window evidence, so do not treat it as 2020/2022 proof.",
+            "- Positive recovery alpha can come from beta rebound; manager attribution still needs holdings/process evidence.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def write_placeholder_tables(paths: Paths, universe: pd.DataFrame) -> None:
     cols = [
         "symbol",
@@ -377,7 +643,7 @@ def write_placeholder_tables(paths: Paths, universe: pd.DataFrame) -> None:
     pd.DataFrame(rows, columns=cols).to_csv(paths.output_dir / "fees_distribution.csv", index=False)
 
 
-def write_charts(paths: Paths, ranking: pd.DataFrame, nav_daily: pd.DataFrame) -> list[str]:
+def write_charts(paths: Paths, ranking: pd.DataFrame, nav_daily: pd.DataFrame, throttle_events: pd.DataFrame | None = None) -> list[str]:
     if ranking.empty or nav_daily.empty:
         return []
     try:
@@ -419,6 +685,38 @@ def write_charts(paths: Paths, ranking: pd.DataFrame, nav_daily: pd.DataFrame) -
         plt.savefig(out, dpi=160)
         plt.close()
         chart_files.append(str(out))
+    if throttle_events is not None and not throttle_events.empty:
+        top = throttle_events.sort_values("ThrottleScore_v2", ascending=False).head(12)
+        if not top.empty:
+            plt.figure(figsize=(12, 7))
+            labels = [f"{r['symbol']}\n{r['event'].replace('_', ' ')[:18]}" for _, r in top.iterrows()]
+            values = pd.to_numeric(top["trough_to_recovery_days"].replace("", np.nan), errors="coerce")
+            plt.bar(range(len(top)), values.fillna(0))
+            plt.xticks(range(len(top)), labels, rotation=45, ha="right", fontsize=8)
+            plt.ylabel("Trough to full recovery days")
+            plt.title("Full Recovery Days: Top Throttle Events")
+            plt.tight_layout()
+            out = paths.charts_dir / "full_recovery_days_comparison.png"
+            plt.savefig(out, dpi=160)
+            plt.close()
+            chart_files.append(str(out))
+
+        scatter = throttle_events.dropna(subset=["downside_capture_vs_6040_pct", "recovery_alpha_12m_vs_6040_pct"])
+        if not scatter.empty:
+            plt.figure(figsize=(10, 7))
+            plt.scatter(scatter["downside_capture_vs_6040_pct"], scatter["recovery_alpha_12m_vs_6040_pct"], alpha=0.75)
+            for _, row in scatter.sort_values("ThrottleScore_v2", ascending=False).head(8).iterrows():
+                plt.annotate(str(row["symbol"]), (row["downside_capture_vs_6040_pct"], row["recovery_alpha_12m_vs_6040_pct"]), fontsize=8)
+            plt.axhline(0, color="black", linewidth=0.8)
+            plt.axvline(100, color="gray", linewidth=0.8, linestyle="--")
+            plt.xlabel("Downside capture vs 60/40 (%)")
+            plt.ylabel("12M recovery alpha vs 60/40 (%)")
+            plt.title("Downside Capture vs Recovery Alpha")
+            plt.tight_layout()
+            out = paths.charts_dir / "downside_capture_vs_recovery_alpha.png"
+            plt.savefig(out, dpi=160)
+            plt.close()
+            chart_files.append(str(out))
     return chart_files
 
 
@@ -515,9 +813,9 @@ def gpt_handoff(output_files: list[str]) -> str:
         [
             "# GPT Read This: Correction-System Research",
             "",
-            "Start with `balanced_fund_correction_system_report.md`, then inspect `correction_system_ranking.csv` and `drawdown_events.csv`.",
+            "Start with `THROTTLE_RESEARCH_AUDIT.md`, then inspect `fund_throttle_summary.md`, `fund_throttle_ranking.csv`, and `fund_throttle_event_metrics.csv`.",
             "",
-            "This is a v1 NAV-measured package. Treat manager skill attribution as incomplete unless `manager_process_evidence.csv` contains official evidence.",
+            "This package now contains v1 long-term correction-system metrics plus v2 event-based throttle-speed metrics. Treat manager skill attribution as incomplete unless `manager_process_evidence.csv` contains official evidence.",
             "",
             "Key rule: do not compare price NAV versus total-return NAV if distribution data is missing. The current v1 uses adjusted NAV from Yahoo cache.",
             "",
@@ -528,6 +826,7 @@ def gpt_handoff(output_files: list[str]) -> str:
             "- Short share-class history is flagged in `data_quality_note`.",
             "- P-BIG strategy-change evidence must be verified before using pre-change history as current-strategy proof.",
             "- Static 60/40 is a proxy benchmark, not a perfect SGD-hedged passive product.",
+            "- `ThrottleScore_v2` is event-based and separate from the older `correction_system_score`.",
             "- Good recovery is measured behavior first, not automatically manager skill.",
             "",
         ]
@@ -584,10 +883,15 @@ def main(argv: list[str] | None = None) -> int:
 
     fund_master = pd.DataFrame(master_rows)
     drawdown_events = pd.DataFrame(event_rows)
+    throttle_events, throttle_ranking = score_throttle_events(drawdown_events)
     ranking = score_rank(fund_master, drawdown_events)
     nav_daily = pd.DataFrame(nav_rows)
 
     output_files = [
+        "THROTTLE_RESEARCH_AUDIT.md",
+        "fund_throttle_event_metrics.csv",
+        "fund_throttle_ranking.csv",
+        "fund_throttle_summary.md",
         "fund_master.csv",
         "nav_daily.csv",
         "drawdown_events.csv",
@@ -604,13 +908,17 @@ def main(argv: list[str] | None = None) -> int:
     fund_master.to_csv(paths.output_dir / "fund_master.csv", index=False, quoting=csv.QUOTE_MINIMAL)
     nav_daily.to_csv(paths.output_dir / "nav_daily.csv", index=False, quoting=csv.QUOTE_MINIMAL)
     drawdown_events.to_csv(paths.output_dir / "drawdown_events.csv", index=False, quoting=csv.QUOTE_MINIMAL)
+    throttle_events.to_csv(paths.output_dir / "fund_throttle_event_metrics.csv", index=False, quoting=csv.QUOTE_MINIMAL)
+    throttle_ranking.to_csv(paths.output_dir / "fund_throttle_ranking.csv", index=False, quoting=csv.QUOTE_MINIMAL)
+    (paths.output_dir / "THROTTLE_RESEARCH_AUDIT.md").write_text(audit_markdown(), encoding="utf-8")
+    (paths.output_dir / "fund_throttle_summary.md").write_text(throttle_summary_markdown(throttle_ranking, throttle_events), encoding="utf-8")
     fund_master.to_csv(paths.output_dir / "recovery_metrics.csv", index=False, quoting=csv.QUOTE_MINIMAL)
     rolling = fund_master[["symbol", "fund", "history_years", "cagr_pct", "max_drawdown_pct", "ulcer_index", "sortino"]].copy()
     rolling["note"] = "v1 summary only; rolling 1Y/3Y/5Y time series to be expanded after total-return NAV validation"
     rolling.to_csv(paths.output_dir / "rolling_returns.csv", index=False, quoting=csv.QUOTE_MINIMAL)
     ranking.to_csv(paths.output_dir / "correction_system_ranking.csv", index=False, quoting=csv.QUOTE_MINIMAL)
     write_placeholder_tables(paths, candidates)
-    chart_files = write_charts(paths, ranking, nav_daily)
+    chart_files = write_charts(paths, ranking, nav_daily, throttle_events)
     (paths.output_dir / "balanced_fund_correction_system_report.md").write_text(
         markdown_report(ranking, drawdown_events, output_files, chart_files),
         encoding="utf-8",
@@ -626,7 +934,9 @@ def main(argv: list[str] | None = None) -> int:
                 "output_dir": str(paths.output_dir),
                 "funds": int(len(fund_master)),
                 "events": int(len(drawdown_events)),
+                "throttle_events": int(len(throttle_events)),
                 "top": "" if ranking.empty else ranking.iloc[0]["fund"],
+                "top_throttle": "" if throttle_ranking.empty else throttle_ranking.iloc[0]["fund"],
             },
             indent=2,
         )
