@@ -6,6 +6,10 @@ on:
     - cron: "30 22 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   run-fund-research:
     runs-on: ubuntu-latest
@@ -56,3 +60,33 @@ jobs:
             AI_Fund_Research/output/fund_daily_summary.json
             AI_Fund_Research/output/fund_daily_summary.md
             AI_Fund_Research/output/*_fund_run_status.json
+
+      - name: Keep only latest 10 workflow runs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_FILE: fund_daily.yml
+          KEEP_COMPLETED_RUNS: "9"
+        run: |
+          set -euo pipefail
+          runs_to_delete="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=completed&per_page=100" \
+              | jq -r --argjson keep "${KEEP_COMPLETED_RUNS}" '.workflow_runs | sort_by(.created_at) | reverse | .[$keep:][]?.id'
+          )"
+          if [ -z "${runs_to_delete}" ]; then
+            echo "No old workflow runs to delete."
+            exit 0
+          fi
+          for run_id in ${runs_to_delete}; do
+            echo "Deleting old workflow run ${run_id}"
+            curl -fsSL -X DELETE \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${run_id}"
+          done
