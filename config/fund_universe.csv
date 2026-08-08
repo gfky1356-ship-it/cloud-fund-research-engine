@@ -6,6 +6,8 @@ SBO.SI,LionGlobal Short Duration Bond Fund Active ETF SGD Class,SGD Short Durati
 0P00019ITU.SI,LionGlobal Short Duration Bond Fund Class A SGD Acc,SGD Short Duration Bond Unit Trust,SGD,Yes,0.56,,2.50,sgd_short_duration,true,false,Singapore unit trust SGD share class Yahoo NAV verified
 0P00006HYS.SI,United SGD Fund Class A SGD Acc,SGD Enhanced Cash / Short Duration,SGD,Yes,0.67,,1.50,sgd_cash_plus,true,false,Singapore unit trust SGD share class Yahoo NAV verified
 0P00012GN9.SI,United SGD Fund SGD Share Class,SGD Enhanced Cash / Short Duration,SGD,Yes,0.67,,1.50,sgd_cash_plus,true,false,Singapore unit trust SGD share class Yahoo NAV verified possible duplicate class
+0P0000Y077.SI,PIMCO GIS Income Fund E Class SGD Hedged Income,Global Multi-Sector Bond SGD-Hedged,SGD,Yes,1.45,,3.50,sgd_hedged_income,true,false,ISIN IE00B9HH6X13; PIMCO/Endowus/FSM visible SGD-hedged income share class Yahoo NAV verified
+0P0001518O.SI,PIMCO GIS Income Fund Institutional SGD Hedged Income,Global Multi-Sector Bond SGD-Hedged,SGD,Yes,0.79,,3.50,sgd_hedged_income,true,false,ISIN IE00BSTL7535; PIMCO/Endowus visible SGD-hedged institutional share class Yahoo NAV verified
 SGOV,iShares 0-3 Month Treasury Bond ETF,Money Market / Treasury Bills,USD,No,0.09,4.96,0.10,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 BIL,SPDR Bloomberg 1-3 Month T-Bill ETF,Money Market / Treasury Bills,USD,No,0.14,4.85,0.12,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 SHV,iShares Short Treasury Bond ETF,Short Treasury Bond,USD,No,0.15,4.55,0.35,ultra_short,true,false,Short US Treasury ETF
