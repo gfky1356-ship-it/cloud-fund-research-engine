@@ -1,6 +1,11 @@
 symbol,name,type,currency,sgd_hedged,fee_pct_seed,yield_pct_seed,duration_years_seed,risk_group,retirement_candidate,benchmark,notes
 MBH.SI,Nikko AM SGD Investment Grade Corporate Bond ETF,SGD Investment Grade Bond,SGD,Yes,0.30,3.30,6.00,sgd_bond,true,false,Singapore-listed SGD investment-grade corporate bond ETF
 A35.SI,ABF Singapore Bond Index Fund,SGD Government / Quasi-Government Bond,SGD,Yes,0.25,2.80,7.00,sgd_bond,true,false,Singapore-listed SGD bond ETF proxy
+KV4.SI,Xtrackers II Singapore Government Bond UCITS ETF 1C,SGD Government Bond,SGD,Yes,0.20,,7.00,sgd_bond,true,false,SGX-listed Singapore government bond ETF SGD ticker Yahoo verified
+SBO.SI,LionGlobal Short Duration Bond Fund Active ETF SGD Class,SGD Short Duration Bond,SGD,Yes,0.25,2.66,2.50,sgd_short_duration,true,false,SGX-listed active short-duration bond ETF SGD class Yahoo verified
+0P00019ITU.SI,LionGlobal Short Duration Bond Fund Class A SGD Acc,SGD Short Duration Bond Unit Trust,SGD,Yes,0.56,,2.50,sgd_short_duration,true,false,Singapore unit trust SGD share class Yahoo NAV verified
+0P00006HYS.SI,United SGD Fund Class A SGD Acc,SGD Enhanced Cash / Short Duration,SGD,Yes,0.67,,1.50,sgd_cash_plus,true,false,Singapore unit trust SGD share class Yahoo NAV verified
+0P00012GN9.SI,United SGD Fund SGD Share Class,SGD Enhanced Cash / Short Duration,SGD,Yes,0.67,,1.50,sgd_cash_plus,true,false,Singapore unit trust SGD share class Yahoo NAV verified possible duplicate class
 SGOV,iShares 0-3 Month Treasury Bond ETF,Money Market / Treasury Bills,USD,No,0.09,4.96,0.10,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 BIL,SPDR Bloomberg 1-3 Month T-Bill ETF,Money Market / Treasury Bills,USD,No,0.14,4.85,0.12,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 SHV,iShares Short Treasury Bond ETF,Short Treasury Bond,USD,No,0.15,4.55,0.35,ultra_short,true,false,Short US Treasury ETF
@@ -12,5 +17,9 @@ FLRN,SPDR Bloomberg Investment Grade Floating Rate ETF,Floating Rate IG Bond,USD
 SCHO,Schwab Short-Term U.S. Treasury ETF,Short Treasury Bond,USD,No,0.03,4.10,1.90,short_duration,true,false,Short-term US Treasury ETF
 IGSB,iShares 1-5 Year Investment Grade Corporate Bond ETF,Short IG Corporate Bond,USD,No,0.04,4.30,2.70,short_duration,true,false,Short investment-grade corporate bond ETF
 VCSH,Vanguard Short-Term Corporate Bond ETF,Short IG Corporate Bond,USD,No,0.04,4.35,2.80,short_duration,true,false,Short investment-grade corporate bond ETF
+QL2.SI,iShares J.P. Morgan USD Asia Credit Bond Index ETF SGD Counter,Asia USD Credit Bond Watch Only,USD,No,0.30,4.14,4.50,asia_usd_credit,false,false,SGX SGD trading counter but USD bond exposure not treated as SGD-hedged
+QL3.SI,iShares USD Asia High Yield Bond ETF SGD Counter,Asia USD High Yield Bond Watch Only,USD,No,0.50,7.59,3.50,asia_usd_high_yield,false,false,SGX SGD trading counter but USD high-yield exposure not treated as SGD-hedged
+CYC.SI,ICBC CSOP Chinese Government Bond Index ETF SGD Counter,China Government Bond Watch Only,CNY,No,0.26,3.00,6.00,china_bond,false,false,SGX SGD trading counter with CNY bond exposure not treated as SGD retirement candidate
+ZHS.SI,NikkoAM-ICBCSG China Bond ETF SGD Counter,China Bond Watch Only,CNY,No,0.30,2.52,5.00,china_bond,false,false,SGX SGD trading counter with China bond exposure not treated as SGD retirement candidate
 ES3.SI,SPDR Straits Times Index ETF,Singapore Equity Benchmark,SGD,No,0.30,4.00,,sg_equity_benchmark,false,true,Singapore equity benchmark only; not a retirement shortlist candidate
 SPY,SPDR S&P 500 ETF Trust,Growth Equity Benchmark,USD,No,0.09,1.20,,growth_benchmark,false,true,Growth benchmark only; must not enter retirement shortlist if drawdown fails
