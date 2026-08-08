@@ -21,6 +21,9 @@ SBO.SI,LionGlobal Short Duration Bond Fund Active ETF SGD Class,SGD Short Durati
 0P0001D2FT.SI,JPM Global Income A IRC SGD Hedged,Global Multi-Asset Income SGD-Hedged,SGD,Yes,1.50,5.02,,multi_asset_income,true,false,JPM Global Income SGD-hedged income share class Yahoo NAV verified
 0P0001N4IJ.SI,JPM Global Income A ICDIV SGD Hedged,Global Multi-Asset Income SGD-Hedged,SGD,Yes,1.50,11.04,,multi_asset_income,true,false,JPM Global Income SGD-hedged high-distribution share class Yahoo NAV verified
 0P0000X4K6.SI,JPMorgan Multi Income Monthly SGD Hedged,Global Multi-Asset Income SGD-Hedged,SGD,Yes,1.45,3.80,,multi_asset_income,true,false,JPMorgan multi-income SGD-hedged share class Yahoo NAV verified
+0P0001D4AM.SI,United SGD Money Market Fund SGD Share Class,SGD Money Market,SGD,Yes,0.31,,0.10,sgd_money_market,true,false,Yahoo NAV verified from weekly discovery; United SGD Money Market Fund; exact share-class label pending confirmation
+0P0001D4AK.SI,United SGD Money Market Fund Class B SGD,SGD Money Market,SGD,Yes,0.31,,0.10,sgd_money_market,true,false,Beansprout identifies Class B SGD; benchmark 3M compounded SORA; Yahoo NAV verified from weekly discovery
+0P0001NFVX.SI,United SGD Money Market Fund SGD Share Class,SGD Money Market,SGD,Yes,0.31,,0.10,sgd_money_market,true,false,Yahoo NAV verified from weekly discovery; short history under 5Y flagged by engine; exact share-class label pending confirmation
 SGOV,iShares 0-3 Month Treasury Bond ETF,Money Market / Treasury Bills,USD,No,0.09,4.96,0.10,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 BIL,SPDR Bloomberg 1-3 Month T-Bill ETF,Money Market / Treasury Bills,USD,No,0.14,4.85,0.12,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 SHV,iShares Short Treasury Bond ETF,Short Treasury Bond,USD,No,0.15,4.55,0.35,ultra_short,true,false,Short US Treasury ETF
