@@ -240,7 +240,16 @@ def refresh_symbol(paths: Paths, symbol: str, years: int, force_full: bool, slee
             time.sleep(sleep_seconds)
         return {"symbol": symbol, "status": "ok", "reason": reason, "existing_rows": row_count, "new_rows": int(len(nav)), "db_changes": changed}
     except Exception as exc:  # noqa: BLE001 - status log needs exact source failure
-        if reason == "incremental" and "Data doesn't exist for startDate" in str(exc):
+        incremental_no_data = (
+            reason == "incremental"
+            and row_count > 0
+            and (
+                "Data doesn't exist for startDate" in str(exc)
+                or "Yahoo returned no usable adjusted close rows" in str(exc)
+                or "Yahoo returned no chart result" in str(exc)
+            )
+        )
+        if incremental_no_data:
             update_source_status(paths.db_path, symbol, "cache_current", None)
             return {
                 "symbol": symbol,
@@ -606,6 +615,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         display["Fund"] = display["Fund"].astype(str)
         display["Type"] = display["Type"].astype(str)
         display = display[["Fund", "Type", "CAGR", "MaxDD", "Calmar", "Yield", "Fee", "RiskTier", "Score"]]
+        display = display.where(pd.notna(display), "NA")
         header = "| " + " | ".join(display.columns) + " |"
         separator = "| " + " | ".join("---" for _ in display.columns) + " |"
         rows = []
