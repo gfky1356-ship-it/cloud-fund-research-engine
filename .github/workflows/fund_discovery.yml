@@ -1,0 +1,69 @@
+name: Weekly Fund Discovery
+
+on:
+  schedule:
+    # Saturday 08:30 Singapore time = Saturday 00:30 UTC.
+    - cron: "30 0 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  discover-fund-candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements_colab.txt
+
+      - name: Run level 1 Yahoo fund discovery
+        run: |
+          python scripts/discover_yahoo_fund_candidates.py --quotes-count 30 --sleep 0.10
+
+      - name: Upload discovery CSV artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fund-candidate-discovery
+          path: AI_Fund_Research/output/fund_candidate_discovery_*.csv
+          retention-days: 14
+
+      - name: Keep only latest 10 discovery runs
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WORKFLOW_FILE: fund_discovery.yml
+          KEEP_COMPLETED_RUNS: "9"
+        run: |
+          set -euo pipefail
+          runs_to_delete="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?status=completed&per_page=100" \
+              | jq -r --argjson keep "${KEEP_COMPLETED_RUNS}" '.workflow_runs | sort_by(.created_at) | reverse | .[$keep:][]?.id'
+          )"
+          if [ -z "${runs_to_delete}" ]; then
+            echo "No old discovery workflow runs to delete."
+            exit 0
+          fi
+          for run_id in ${runs_to_delete}; do
+            echo "Deleting old discovery workflow run ${run_id}"
+            curl -fsSL -X DELETE \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${REPO}/actions/runs/${run_id}"
+          done
