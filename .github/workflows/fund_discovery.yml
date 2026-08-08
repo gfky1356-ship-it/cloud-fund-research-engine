@@ -27,15 +27,30 @@ jobs:
         run: |
           pip install -r requirements_colab.txt
 
-      - name: Run level 1 Yahoo fund discovery
+      - name: Analyze existing discovery pool before expansion
         run: |
-          python scripts/discover_yahoo_fund_candidates.py --quotes-count 30 --sleep 0.10
+          python scripts/analyze_discovery_pool.py
+
+      - name: Run targeted level 1 Yahoo fund discovery
+        run: |
+          python scripts/discover_yahoo_fund_candidates.py \
+            --queries-file AI_Fund_Research/output/fund_discovery_target_queries.txt \
+            --quotes-count 30 \
+            --sleep 0.10
+
+      - name: Re-analyze discovery pool after expansion
+        run: |
+          python scripts/analyze_discovery_pool.py
 
       - name: Upload discovery CSV artifact
         uses: actions/upload-artifact@v4
         with:
           name: fund-candidate-discovery
-          path: AI_Fund_Research/output/fund_candidate_discovery_*.csv
+          path: |
+            AI_Fund_Research/output/fund_candidate_discovery_*.csv
+            AI_Fund_Research/output/fund_discovery_pool_normalized.csv
+            AI_Fund_Research/output/fund_discovery_pool_summary.md
+            AI_Fund_Research/output/fund_discovery_target_queries.txt
           retention-days: 14
 
       - name: Keep only latest 10 discovery runs
