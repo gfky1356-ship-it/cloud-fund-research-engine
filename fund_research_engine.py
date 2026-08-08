@@ -532,6 +532,8 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
             "last_date": "Last_NAV",
         }
     )
+    out.insert(0, "Code", out["Fund"])
+    out["Fund"] = out["Name"]
     for col in ("CAGR", "MaxDD", "Calmar", "Yield", "Fee", "Vol"):
         out[col] = out[col].astype(float).round(2)
     out["RecoveryDays"] = out["RecoveryDays"].round(0).astype("Int64")
@@ -614,7 +616,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         display = latest.copy()
         display["Fund"] = display["Fund"].astype(str)
         display["Type"] = display["Type"].astype(str)
-        display = display[["Fund", "Type", "CAGR", "MaxDD", "Calmar", "Yield", "Fee", "RiskTier", "Score"]]
+        display = display[["Fund", "Code", "Type", "CAGR", "MaxDD", "Calmar", "Yield", "Fee", "RiskTier", "Score"]]
         display = display.where(pd.notna(display), "NA")
         header = "| " + " | ".join(display.columns) + " |"
         separator = "| " + " | ".join("---" for _ in display.columns) + " |"
