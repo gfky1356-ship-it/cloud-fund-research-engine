@@ -258,11 +258,28 @@ def main(argv: list[str] | None = None) -> int:
         out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.name == "fund_candidate_discovery.csv":
         out_path = out_path.with_name(f"fund_candidate_discovery_{now_stamp()}.csv")
-    pd.DataFrame(rows).sort_values(["status", "eligible_hint", "history_years", "maxdd_pct"], ascending=[True, True, False, False]).to_csv(
-        out_path,
-        index=False,
-        quoting=csv.QUOTE_MINIMAL,
-    )
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df = df.sort_values(["status", "eligible_hint", "history_years", "maxdd_pct"], ascending=[True, True, False, False])
+    else:
+        df = pd.DataFrame(
+            columns=[
+                "symbol",
+                "name",
+                "status",
+                "error",
+                "currency",
+                "exchange",
+                "instrument_type",
+                "eligible_hint",
+                "likely_sgd_or_hedged",
+                "likely_hedged",
+                "retirement_type_hint",
+                "source_query",
+                "already_in_universe",
+            ]
+        )
+    df.to_csv(out_path, index=False, quoting=csv.QUOTE_MINIMAL)
     print(json.dumps({"message": "discovery_finished", "output": str(out_path), "candidates": len(rows)}, indent=2))
     return 0
 
