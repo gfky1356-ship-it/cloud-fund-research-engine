@@ -635,7 +635,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         display = latest.copy()
         display["Fund"] = display["Fund"].astype(str)
         display["Type"] = display["Type"].astype(str)
-        display = display[["Fund", "Code", "Type", "CAGR", "MaxDD", "Calmar", "Excess", "Yield", "Fee", "RiskTier", "Score"]]
+        display = display[["Fund", "Code", "Type", "CAGR", "MaxDD", "Calmar", "Excess", "Yield", "Fee", "RiskTier", "Score", "History_LT_5Y"]]
         display = display.where(pd.notna(display), "NA")
         header = "| " + " | ".join(display.columns) + " |"
         separator = "| " + " | ".join("---" for _ in display.columns) + " |"
