@@ -33,7 +33,7 @@ jobs:
 
       - name: Run quick daily
         run: |
-          python fund_research_engine.py --mode quick-daily --top-n 5
+          python fund_research_engine.py --mode quick-daily --top-n 10
 
       - name: Upload latest outputs to Google Drive
         env:
