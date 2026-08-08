@@ -1,0 +1,55 @@
+# Targeted discovery queries for underrepresented retirement categories.
+# Generated after discovery pool audit showed gaps in Balanced, Low Vol,
+# Global Bond SGD Hedged, Conservative Multi-Asset, and Dividend/Equity Income.
+Balanced Singapore SGD fund
+balanced fund SGD Singapore unit trust
+conservative balanced fund SGD
+conservative multi asset fund SGD
+defensive allocation fund SGD
+multi asset conservative SGD fund
+global allocation SGD hedged fund
+income and growth SGD hedged fund
+global income SGD hedged fund
+global bond SGD hedged fund
+aggregate bond SGD hedged fund
+investment grade bond SGD hedged fund
+short duration bond SGD Singapore fund
+enhanced cash SGD Singapore fund
+liquidity fund SGD Singapore
+Fullerton SGD cash fund
+Fullerton SGD liquidity fund
+Fullerton SGD income fund
+Fullerton short term interest rate SGD
+LionGlobal balanced fund SGD
+LionGlobal income fund SGD
+Nikko AM balanced fund SGD
+Nikko AM income fund SGD
+Schroder global bond SGD hedged
+Schroder global multi asset SGD
+Schroder Asian income SGD
+Schroder dividend SGD
+JPM global bond SGD hedged
+JPM global income SGD hedged
+JPM multi asset income SGD hedged
+PIMCO global bond SGD hedged
+PIMCO income SGD hedged
+PIMCO GIS diversified income SGD hedged
+Allianz dynamic multi asset SGD
+Allianz income growth SGD hedged
+Fidelity global income SGD hedged
+Fidelity multi asset income SGD
+BlackRock global allocation SGD hedged
+BlackRock multi asset income SGD
+Amundi global aggregate bond SGD hedged
+Amundi income SGD hedged
+Manulife income SGD hedged
+Manulife global multi asset SGD
+Franklin income SGD hedged
+Franklin global aggregate bond SGD hedged
+Templeton global bond SGD hedged
+low volatility equity SGD fund
+minimum volatility Singapore SGD fund
+global low volatility SGD hedged fund
+dividend equity income SGD fund
+Asian dividend income SGD fund
+Singapore dividend fund SGD
