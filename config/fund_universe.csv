@@ -8,6 +8,14 @@ SBO.SI,LionGlobal Short Duration Bond Fund Active ETF SGD Class,SGD Short Durati
 0P00012GN9.SI,United SGD Fund SGD Share Class,SGD Enhanced Cash / Short Duration,SGD,Yes,0.67,,1.50,sgd_cash_plus,true,false,Singapore unit trust SGD share class Yahoo NAV verified possible duplicate class
 0P0000Y077.SI,PIMCO GIS Income Fund E Class SGD Hedged Income,Global Multi-Sector Bond SGD-Hedged,SGD,Yes,1.45,,3.50,sgd_hedged_income,true,false,ISIN IE00B9HH6X13; PIMCO/Endowus/FSM visible SGD-hedged income share class Yahoo NAV verified
 0P0001518O.SI,PIMCO GIS Income Fund Institutional SGD Hedged Income,Global Multi-Sector Bond SGD-Hedged,SGD,Yes,0.79,,3.50,sgd_hedged_income,true,false,ISIN IE00BSTL7535; PIMCO/Endowus visible SGD-hedged institutional share class Yahoo NAV verified
+0P00006G1T.SI,Nikko AM Shenton Short Term Bond Fund SGD,SGD Short Term Bond,SGD,Yes,0.45,2.36,1.50,sgd_short_duration,true,false,Amova/Nikko short-term bond SGD class Yahoo NAV verified
+0P00006OSF.SI,First Sentier Bridge Fund,Balanced / Defensive Allocation SGD,SGD,Yes,1.25,4.27,,balanced_income,true,false,Balanced bridge fund SGD class Yahoo NAV verified; included to test multi-asset retirement risk ceiling
+0P0000TZQ7.SI,Schroder Asian Income SGD A Dis,Asia Multi-Asset Income / Equity Income,SGD,Yes,1.25,6.00,,equity_income,true,false,ISIN SG9999007991; Asian equity/fixed-income income strategy Yahoo NAV verified
+0P0000Y1XJ.SI,Schroder Asian Income SGD X Dis,Asia Multi-Asset Income / Equity Income,SGD,Yes,0.75,6.00,,equity_income,true,false,Asian equity/fixed-income income strategy lower-fee share class Yahoo NAV verified
+0P0000Z32L.SI,Allianz Income and Growth AMi3 H2 SGD,Global Multi-Asset Income SGD-Hedged,SGD,Yes,1.45,6.00,,multi_asset_income,true,false,ISIN LU0943347566; US equity/high-yield/convertible multi-asset income strategy Yahoo NAV verified
+0P0001I87J.SI,JPM Income A Monthly SGD,Global Multi-Sector Income SGD,SGD,Yes,1.00,6.25,,sgd_hedged_income,true,false,JPM Income SGD share class Yahoo NAV verified
+0P0001D2FT.SI,JPM Global Income A IRC SGD Hedged,Global Multi-Asset Income SGD-Hedged,SGD,Yes,1.50,5.02,,multi_asset_income,true,false,JPM Global Income SGD-hedged income share class Yahoo NAV verified
+0P0000X4K6.SI,JPMorgan Multi Income Monthly SGD Hedged,Global Multi-Asset Income SGD-Hedged,SGD,Yes,1.45,3.80,,multi_asset_income,true,false,JPMorgan multi-income SGD-hedged share class Yahoo NAV verified
 SGOV,iShares 0-3 Month Treasury Bond ETF,Money Market / Treasury Bills,USD,No,0.09,4.96,0.10,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 BIL,SPDR Bloomberg 1-3 Month T-Bill ETF,Money Market / Treasury Bills,USD,No,0.14,4.85,0.12,ultra_short,true,false,T-bill ETF proxy for cash-like USD yield
 SHV,iShares Short Treasury Bond ETF,Short Treasury Bond,USD,No,0.15,4.55,0.35,ultra_short,true,false,Short US Treasury ETF
