@@ -32,6 +32,7 @@ LOCAL_ROOT = "AI_Fund_Research"
 TIER_A_MAX_DD = -5.0
 TIER_B_MAX_DD = -10.0
 TIER_C_MAX_DD = -15.0
+SGD_CASH_CAGR_BENCHMARK = 1.8
 USER_AGENT = "Mozilla/5.0 fund-research-engine/1.0"
 
 
@@ -363,6 +364,16 @@ def calmar_ratio(cagr_pct: float, maxdd_pct: float) -> float:
     return float(cagr_pct / denominator)
 
 
+def excess_return_ratio(cagr_pct: float, maxdd_pct: float, cash_cagr_pct: float = SGD_CASH_CAGR_BENCHMARK) -> float:
+    if pd.isna(cagr_pct) or pd.isna(maxdd_pct):
+        return float("nan")
+    excess = float(cagr_pct) - cash_cagr_pct
+    if excess <= 0:
+        return 0.0
+    denominator = max(abs(float(maxdd_pct)), 1.5)
+    return float(excess / denominator)
+
+
 def compute_metrics(universe: pd.DataFrame, nav: pd.DataFrame) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     today = pd.Timestamp(date.today())
@@ -410,6 +421,8 @@ def compute_metrics(universe: pd.DataFrame, nav: pd.DataFrame) -> pd.DataFrame:
             cagr_base = row["cagr_1y_pct"]
         row["risk_tier"] = risk_tier(row["maxdd_5y_or_life_pct"])
         row["calmar_5y_or_life"] = calmar_ratio(cagr_base, row["maxdd_5y_or_life_pct"])
+        row["excess_cagr_vs_cash_pct"] = cagr_base - SGD_CASH_CAGR_BENCHMARK if pd.notna(cagr_base) else float("nan")
+        row["excess_return_per_dd"] = excess_return_ratio(cagr_base, row["maxdd_5y_or_life_pct"])
         row["retirement_pass"] = bool(
             row["retirement_candidate"]
             and not row["benchmark"]
@@ -441,6 +454,8 @@ def score_rows(metrics: pd.DataFrame) -> pd.DataFrame:
         scored["cagr_1y_pct"],
     )
     calmar = scored["calmar_5y_or_life"].fillna(0).clip(lower=0, upper=2.0)
+    excess = scored["excess_cagr_vs_cash_pct"].fillna(0).clip(lower=0, upper=6)
+    excess_ratio = scored["excess_return_per_dd"].fillna(0).clip(lower=0, upper=1.2)
     sortino = scored["sortino_1y"].fillna(0).clip(lower=0, upper=4.0)
     dd_score = ((scored["maxdd_5y_or_life_pct"].clip(lower=-15, upper=0) + 15) / 15).fillna(0)
     vol = scored["volatility_1y_pct"].fillna(scored["volatility_1y_pct"].median()).clip(lower=0, upper=12)
@@ -448,14 +463,15 @@ def score_rows(metrics: pd.DataFrame) -> pd.DataFrame:
     fee = scored["fee_pct"].fillna(scored["fee_pct"].median()).clip(lower=0, upper=1.5)
     recovery = scored["recovery_days_5y_or_life"].fillna(scored["recovery_days_5y_or_life"].median()).clip(lower=0, upper=1095)
     score = (
-        28 * (calmar / 2.0)
-        + 22 * (sortino / 4.0)
+        22 * (calmar / 2.0)
+        + 18 * (sortino / 4.0)
+        + 16 * (excess_ratio / 1.2)
         + 15 * dd_score
-        + 14 * (cagr_base.fillna(0).clip(lower=0, upper=8) / 8)
+        + 9 * (excess / 6)
         + 9 * (yld / 7)
         + 5 * (1 - (fee / 1.5))
         + 4 * (1 - (vol / 12))
-        + 3 * (1 - (recovery / 1095))
+        + 2 * (1 - (recovery / 1095))
     )
     scored.loc[pass_mask, "score"] = score[pass_mask].round(0)
     return scored
@@ -499,6 +515,7 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
         "cagr_display",
         "maxdd_5y_or_life_pct",
         "calmar_5y_or_life",
+        "excess_cagr_vs_cash_pct",
         "yield_pct",
         "fee_pct",
         "volatility_1y_pct",
@@ -520,6 +537,7 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
             "cagr_display": "CAGR",
             "maxdd_5y_or_life_pct": "MaxDD",
             "calmar_5y_or_life": "Calmar",
+            "excess_cagr_vs_cash_pct": "Excess",
             "yield_pct": "Yield",
             "fee_pct": "Fee",
             "volatility_1y_pct": "Vol",
@@ -534,7 +552,7 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
     )
     out.insert(0, "Code", out["Fund"])
     out["Fund"] = out["Name"]
-    for col in ("CAGR", "MaxDD", "Calmar", "Yield", "Fee", "Vol"):
+    for col in ("CAGR", "MaxDD", "Calmar", "Excess", "Yield", "Fee", "Vol"):
         out[col] = out[col].astype(float).round(2)
     out["RecoveryDays"] = out["RecoveryDays"].round(0).astype("Int64")
     out["Score"] = out["Score"].round(0).astype("Int64")
@@ -599,6 +617,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         f"- Display scope: `{display_scope}`",
         f"- Cache: `{cache['state']}`",
         "- Ranking: risk-adjusted retirement Top 10 using Calmar, Sortino, MaxDD, recovery time, CAGR, yield, fee, and volatility.",
+        f"- Cash benchmark: `{SGD_CASH_CAGR_BENCHMARK:.1f}% SGD cash CAGR`; Excess = fund CAGR minus cash benchmark.",
         "- Risk tiers: `A <=5% DD`, `B >5% to 10% DD`, `C >10% to 15% DD`, `Reject >15% DD`.",
         "- SPY/ES3.SI are benchmark only and are not eligible for the retirement shortlist.",
         "",
@@ -616,7 +635,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         display = latest.copy()
         display["Fund"] = display["Fund"].astype(str)
         display["Type"] = display["Type"].astype(str)
-        display = display[["Fund", "Code", "Type", "CAGR", "MaxDD", "Calmar", "Yield", "Fee", "RiskTier", "Score"]]
+        display = display[["Fund", "Code", "Type", "CAGR", "MaxDD", "Calmar", "Excess", "Yield", "Fee", "RiskTier", "Score"]]
         display = display.where(pd.notna(display), "NA")
         header = "| " + " | ".join(display.columns) + " |"
         separator = "| " + " | ".join("---" for _ in display.columns) + " |"
@@ -686,7 +705,8 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, scoped: pd.DataFrame, late
         "display_scope": display_scope,
         "cache": cache,
         "universe_funnel": funnel,
-        "ranking_logic": "Risk-adjusted Top 10. Tier A <=5% DD, B >5% to 10%, C >10% to 15%, Reject >15%. Score uses Calmar, Sortino, MaxDD, recovery days, CAGR, yield, fee, and volatility.",
+        "ranking_logic": "Risk-adjusted Top 10. Tier A <=5% DD, B >5% to 10%, C >10% to 15%, Reject >15%. Score uses Calmar, Sortino, excess return versus SGD cash, MaxDD, recovery days, yield, fee, and volatility.",
+        "cash_benchmark_cagr_pct": SGD_CASH_CAGR_BENCHMARK,
         "storage_root": str(paths.storage_root),
         "latest_csv": str(latest_csv),
         "latest_json": str(latest_json),
