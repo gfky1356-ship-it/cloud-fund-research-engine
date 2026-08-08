@@ -29,7 +29,9 @@ import requests
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 DEFAULT_DRIVE_ROOT = "/content/drive/MyDrive/AI_Fund_Research"
 LOCAL_ROOT = "AI_Fund_Research"
-RETIREMENT_MAX_DD_LIMIT = -5.0
+TIER_A_MAX_DD = -5.0
+TIER_B_MAX_DD = -10.0
+TIER_C_MAX_DD = -15.0
 USER_AGENT = "Mozilla/5.0 fund-research-engine/1.0"
 
 
@@ -273,6 +275,28 @@ def max_drawdown(prices: pd.Series) -> float:
     return float(dd.min() * 100.0)
 
 
+def max_recovery_days(prices: pd.Series, dates: pd.Series) -> float:
+    if len(prices) < 2:
+        return float("nan")
+    peak = float(prices.iloc[0])
+    peak_date = dates.iloc[0]
+    underwater_start = None
+    max_days = 0
+    for price, current_date in zip(prices.iloc[1:], dates.iloc[1:]):
+        price = float(price)
+        if price >= peak:
+            if underwater_start is not None:
+                max_days = max(max_days, int((current_date - underwater_start).days))
+                underwater_start = None
+            peak = price
+            peak_date = current_date
+        elif underwater_start is None:
+            underwater_start = peak_date
+    if underwater_start is not None:
+        max_days = max(max_days, int((dates.iloc[-1] - underwater_start).days))
+    return float(max_days)
+
+
 def cagr(prices: pd.Series, dates: pd.Series) -> float:
     if len(prices) < 2:
         return float("nan")
@@ -307,6 +331,27 @@ def sortino_like(prices: pd.Series, risk_free_pct: float = 0.0) -> float:
     annual_return = returns.mean() * 252 * 100.0
     downside_vol = downside.std() * math.sqrt(252) * 100.0
     return float((annual_return - risk_free_pct) / downside_vol)
+
+
+def risk_tier(maxdd_pct: float) -> str:
+    if pd.isna(maxdd_pct):
+        return "Unknown"
+    if maxdd_pct >= TIER_A_MAX_DD:
+        return "A"
+    if maxdd_pct >= TIER_B_MAX_DD:
+        return "B"
+    if maxdd_pct >= TIER_C_MAX_DD:
+        return "C"
+    return "Reject"
+
+
+def calmar_ratio(cagr_pct: float, maxdd_pct: float) -> float:
+    if pd.isna(cagr_pct) or pd.isna(maxdd_pct):
+        return float("nan")
+    if cagr_pct <= 0:
+        return 0.0
+    denominator = max(abs(float(maxdd_pct)), 1.5)
+    return float(cagr_pct / denominator)
 
 
 def compute_metrics(universe: pd.DataFrame, nav: pd.DataFrame) -> pd.DataFrame:
@@ -344,17 +389,23 @@ def compute_metrics(universe: pd.DataFrame, nav: pd.DataFrame) -> pd.DataFrame:
             "maxdd_3y_pct": max_drawdown(windows["3y"]["adj_close"]) if len(windows["3y"]) >= 2 else float("nan"),
             "maxdd_5y_or_life_pct": max_drawdown(primary["adj_close"]) if len(primary) >= 2 else float("nan"),
             "volatility_1y_pct": annual_volatility(windows["1y"]["adj_close"]),
+            "recovery_days_5y_or_life": max_recovery_days(primary["adj_close"], primary["date"]) if len(primary) >= 2 else float("nan"),
             "sharpe_1y": sharpe_like(windows["1y"]["adj_close"]),
             "sortino_1y": sortino_like(windows["1y"]["adj_close"]),
             "yield_pct": pct_from_seed(item.get("yield_pct_seed")),
             "fee_pct": pct_from_seed(item.get("fee_pct_seed")),
             "duration_years": pct_from_seed(item.get("duration_years_seed")),
         }
+        cagr_base = row["cagr_5y_pct"] if pd.notna(row["cagr_5y_pct"]) else row["cagr_3y_pct"]
+        if pd.isna(cagr_base):
+            cagr_base = row["cagr_1y_pct"]
+        row["risk_tier"] = risk_tier(row["maxdd_5y_or_life_pct"])
+        row["calmar_5y_or_life"] = calmar_ratio(cagr_base, row["maxdd_5y_or_life_pct"])
         row["retirement_pass"] = bool(
             row["retirement_candidate"]
             and not row["benchmark"]
             and pd.notna(row["maxdd_5y_or_life_pct"])
-            and row["maxdd_5y_or_life_pct"] >= RETIREMENT_MAX_DD_LIMIT
+            and row["risk_tier"] in {"A", "B", "C"}
         )
         if row["benchmark"]:
             row["fail_reason"] = "Benchmark only"
@@ -362,8 +413,8 @@ def compute_metrics(universe: pd.DataFrame, nav: pd.DataFrame) -> pd.DataFrame:
             row["fail_reason"] = "Not marked as retirement candidate"
         elif pd.isna(row["maxdd_5y_or_life_pct"]):
             row["fail_reason"] = "Insufficient drawdown data"
-        elif row["maxdd_5y_or_life_pct"] < RETIREMENT_MAX_DD_LIMIT:
-            row["fail_reason"] = "MaxDD worse than 5% hard limit"
+        elif row["risk_tier"] == "Reject":
+            row["fail_reason"] = "MaxDD worse than 15% retirement limit"
         else:
             row["fail_reason"] = ""
         rows.append(row)
@@ -380,16 +431,22 @@ def score_rows(metrics: pd.DataFrame) -> pd.DataFrame:
         pd.notna(scored["cagr_5y_pct"].where(pd.notna(scored["cagr_5y_pct"]), scored["cagr_3y_pct"])),
         scored["cagr_1y_pct"],
     )
-    dd = scored["maxdd_5y_or_life_pct"].clip(lower=-5, upper=0)
-    vol = scored["volatility_1y_pct"].fillna(scored["volatility_1y_pct"].median())
-    yld = scored["yield_pct"].fillna(0)
-    fee = scored["fee_pct"].fillna(scored["fee_pct"].median())
+    calmar = scored["calmar_5y_or_life"].fillna(0).clip(lower=0, upper=2.0)
+    sortino = scored["sortino_1y"].fillna(0).clip(lower=0, upper=4.0)
+    dd_score = ((scored["maxdd_5y_or_life_pct"].clip(lower=-15, upper=0) + 15) / 15).fillna(0)
+    vol = scored["volatility_1y_pct"].fillna(scored["volatility_1y_pct"].median()).clip(lower=0, upper=12)
+    yld = scored["yield_pct"].fillna(0).clip(lower=0, upper=7)
+    fee = scored["fee_pct"].fillna(scored["fee_pct"].median()).clip(lower=0, upper=1.5)
+    recovery = scored["recovery_days_5y_or_life"].fillna(scored["recovery_days_5y_or_life"].median()).clip(lower=0, upper=1095)
     score = (
-        45 * ((dd + 5) / 5)
-        + 25 * (cagr_base.clip(lower=0, upper=6) / 6)
-        + 15 * (yld.clip(lower=0, upper=6) / 6)
-        + 10 * (1 - (fee.clip(lower=0, upper=0.8) / 0.8))
-        + 5 * (1 - (vol.clip(lower=0, upper=8) / 8))
+        28 * (calmar / 2.0)
+        + 22 * (sortino / 4.0)
+        + 15 * dd_score
+        + 14 * (cagr_base.fillna(0).clip(lower=0, upper=8) / 8)
+        + 9 * (yld / 7)
+        + 5 * (1 - (fee / 1.5))
+        + 4 * (1 - (vol / 12))
+        + 3 * (1 - (recovery / 1095))
     )
     scored.loc[pass_mask, "score"] = score[pass_mask].round(0)
     return scored
@@ -432,9 +489,12 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
         "sgd_hedged",
         "cagr_display",
         "maxdd_5y_or_life_pct",
+        "calmar_5y_or_life",
         "yield_pct",
         "fee_pct",
         "volatility_1y_pct",
+        "recovery_days_5y_or_life",
+        "risk_tier",
         "score",
         "retirement_pass",
         "fail_reason",
@@ -450,9 +510,12 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
             "sgd_hedged": "SGD_Hedged",
             "cagr_display": "CAGR",
             "maxdd_5y_or_life_pct": "MaxDD",
+            "calmar_5y_or_life": "Calmar",
             "yield_pct": "Yield",
             "fee_pct": "Fee",
             "volatility_1y_pct": "Vol",
+            "recovery_days_5y_or_life": "RecoveryDays",
+            "risk_tier": "RiskTier",
             "score": "Score",
             "retirement_pass": "Retirement_Pass",
             "fail_reason": "Fail_Reason",
@@ -460,11 +523,30 @@ def compact_latest(scored: pd.DataFrame, top_n: int) -> pd.DataFrame:
             "last_date": "Last_NAV",
         }
     )
-    for col in ("CAGR", "MaxDD", "Yield", "Fee", "Vol"):
+    for col in ("CAGR", "MaxDD", "Calmar", "Yield", "Fee", "Vol"):
         out[col] = out[col].astype(float).round(2)
+    out["RecoveryDays"] = out["RecoveryDays"].round(0).astype("Int64")
     out["Score"] = out["Score"].round(0).astype("Int64")
     out["Fail_Reason"] = out["Fail_Reason"].fillna("")
     return out
+
+
+def universe_funnel(scored: pd.DataFrame, scoped: pd.DataFrame, latest: pd.DataFrame) -> dict[str, int]:
+    eligible = scoped[
+        scoped["retirement_candidate"].fillna(False)
+        & ~scoped["benchmark"].fillna(False)
+        & (scoped["status"] == "OK")
+    ]
+    return {
+        "total_scanned": int(len(scored)),
+        "sgd_or_sgd_hedged_eligible": int(len(eligible)),
+        "history_gte_5y": int((eligible["history_less_than_5y"].fillna(True) == False).sum()),
+        "tier_a": int((eligible["risk_tier"] == "A").sum()),
+        "tier_b": int((eligible["risk_tier"] == "B").sum()),
+        "tier_c": int((eligible["risk_tier"] == "C").sum()),
+        "excluded_gt_15dd": int((eligible["risk_tier"] == "Reject").sum()),
+        "final_top10": int(len(latest)),
+    }
 
 
 def cache_summary(statuses: list[dict[str, Any]], nav: pd.DataFrame) -> dict[str, Any]:
@@ -497,7 +579,7 @@ def cache_summary(statuses: list[dict[str, Any]], nav: pd.DataFrame) -> dict[str
     }
 
 
-def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display_scope: str, cache: dict[str, Any]) -> str:
+def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display_scope: str, cache: dict[str, Any], funnel: dict[str, int]) -> str:
     lines = [
         "# Fund Daily Summary",
         "",
@@ -505,7 +587,8 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         f"- Mode: `{mode}`",
         f"- Display scope: `{display_scope}`",
         f"- Cache: `{cache['state']}`",
-        "- Hard rule: `5Y Max Drawdown <= 5%`; if history is under 5Y, inception-to-date MaxDD is used and flagged.",
+        "- Ranking: risk-adjusted retirement Top 10 using Calmar, Sortino, MaxDD, recovery time, CAGR, yield, fee, and volatility.",
+        "- Risk tiers: `A <=5% DD`, `B >5% to 10% DD`, `C >10% to 15% DD`, `Reject >15% DD`.",
         "- SPY/ES3.SI are benchmark only and are not eligible for the retirement shortlist.",
         "",
     ]
@@ -514,7 +597,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
             [
                 "## Top Retirement Candidates",
                 "",
-                "No fund passed the hard MaxDD filter in this run.",
+                "No SGD / SGD-hedged fund reached Tier A-C eligibility in this run.",
                 "",
             ]
         )
@@ -522,7 +605,7 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         display = latest.copy()
         display["Fund"] = display["Fund"].astype(str)
         display["Type"] = display["Type"].astype(str)
-        display = display[["Fund", "Type", "CAGR", "MaxDD", "Yield", "Fee", "Score", "Retirement_Pass", "Fail_Reason", "Last_NAV"]]
+        display = display[["Fund", "Type", "CAGR", "MaxDD", "Calmar", "Yield", "Fee", "RiskTier", "Score"]]
         header = "| " + " | ".join(display.columns) + " |"
         separator = "| " + " | ".join("---" for _ in display.columns) + " |"
         rows = []
@@ -538,6 +621,17 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
         )
     lines.extend(
         [
+            "## Universe Funnel",
+            "",
+            f"- Total scanned: `{funnel['total_scanned']}`",
+            f"- SGD / SGD-hedged eligible: `{funnel['sgd_or_sgd_hedged_eligible']}`",
+            f"- >=5Y history: `{funnel['history_gte_5y']}`",
+            f"- Tier A: `{funnel['tier_a']}`",
+            f"- Tier B: `{funnel['tier_b']}`",
+            f"- Tier C: `{funnel['tier_c']}`",
+            f"- >15% DD excluded: `{funnel['excluded_gt_15dd']}`",
+            f"- Final Top 10 count: `{funnel['final_top10']}`",
+            "",
             "## Cache Status",
             "",
             f"- Cache: `{cache['state']}`",
@@ -554,14 +648,15 @@ def markdown_summary(latest: pd.DataFrame, generated_at: str, mode: str, display
             "",
             "- Treat this file as the compact latest view.",
             "- Use CSV/JSON only when exact machine-readable fields are needed.",
-            "- Do not rank funds that failed the MaxDD hard rule.",
+            "- Do not treat USD-only unhedged products as SGD retirement candidates.",
+            "- Tier B/C names are research candidates, not automatic buy recommendations.",
             "",
         ]
     )
     return "\n".join(lines)
 
 
-def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode: str, display_scope: str, statuses: list[dict[str, Any]], nav: pd.DataFrame) -> dict[str, str]:
+def write_outputs(paths: Paths, scored: pd.DataFrame, scoped: pd.DataFrame, latest: pd.DataFrame, mode: str, display_scope: str, statuses: list[dict[str, Any]], nav: pd.DataFrame) -> dict[str, str]:
     run_date = date.today().isoformat()
     latest_csv = paths.output_dir / "fund_daily_summary.csv"
     latest_json = paths.output_dir / "fund_daily_summary.json"
@@ -572,12 +667,14 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
     scored.to_csv(full_csv, index=False)
     generated_at = now_iso()
     cache = cache_summary(statuses, nav)
+    funnel = universe_funnel(scored, scoped, latest)
     payload = {
         "generated_at": generated_at,
         "mode": mode,
         "display_scope": display_scope,
         "cache": cache,
-        "hard_filter": "5Y Max Drawdown <= 5%; if history <5Y, inception-to-date MaxDD is used and flagged",
+        "universe_funnel": funnel,
+        "ranking_logic": "Risk-adjusted Top 10. Tier A <=5% DD, B >5% to 10%, C >10% to 15%, Reject >15%. Score uses Calmar, Sortino, MaxDD, recovery days, CAGR, yield, fee, and volatility.",
         "storage_root": str(paths.storage_root),
         "latest_csv": str(latest_csv),
         "latest_json": str(latest_json),
@@ -585,12 +682,13 @@ def write_outputs(paths: Paths, scored: pd.DataFrame, latest: pd.DataFrame, mode
         "rows": latest.replace({np.nan: None}).to_dict("records"),
     }
     latest_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    latest_md.write_text(markdown_summary(latest, generated_at, mode, display_scope, cache), encoding="utf-8")
+    latest_md.write_text(markdown_summary(latest, generated_at, mode, display_scope, cache, funnel), encoding="utf-8")
     status_payload = {
         "generated_at": now_iso(),
         "mode": mode,
         "display_scope": display_scope,
         "cache": cache,
+        "universe_funnel": funnel,
         "db_path": str(paths.db_path),
         "universe_path": str(paths.universe_path),
         "source_status": statuses,
@@ -633,11 +731,11 @@ def run_engine(args: argparse.Namespace) -> int:
     display_scope = args.display_currency.upper()
     if display_scope == "SGD" and not args.exclude_sgd_hedged:
         display_scope = "SGD plus SGD-hedged"
-    outputs = write_outputs(paths, scored, latest, args.mode, display_scope, statuses, nav)
+    outputs = write_outputs(paths, scored, scoped, latest, args.mode, display_scope, statuses, nav)
     log_event(paths, "run_finished", outputs=outputs, latest_rows=int(len(latest)))
     print("\nLatest Top Funds")
     if latest.empty:
-        print("No fund passed the hard MaxDD filter. Check full ranking/status outputs.")
+        print("No SGD / SGD-hedged fund reached Tier A-C eligibility. Check full ranking/status outputs.")
     else:
         print(latest.to_string(index=False))
     print("\nStable ChatGPT bridge outputs:")
@@ -652,7 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mode", choices=["quick-daily", "deep-weekend"], default="quick-daily")
     parser.add_argument("--storage-root", default=None, help="Persistent root. In Colab use /content/drive/MyDrive/AI_Fund_Research")
     parser.add_argument("--universe", default=None, help="CSV fund universe path")
-    parser.add_argument("--top-n", type=int, default=5)
+    parser.add_argument("--top-n", type=int, default=10)
     parser.add_argument("--display-currency", default="SGD", help="Currency scope for latest output. Use ALL to show all currencies.")
     parser.add_argument("--exclude-sgd-hedged", action="store_true", help="For SGD display, exclude non-SGD funds marked SGD-hedged.")
     parser.add_argument("--force-full", action="store_true", help="Ignore cache bounds and refresh full history window")
